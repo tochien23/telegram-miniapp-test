@@ -209,10 +209,12 @@
     .btn-toggle-on  { background: #fff3cd; color: #856404; }
     .btn-toggle-off { background: #d4edda; color: #155724; }
     .btn-delete     { background: #fde8e8; color: var(--danger); }
+    .btn-edit       { background: #ebf8ff; color: #2b6cb0; }
     @media (prefers-color-scheme: dark) {
       .btn-toggle-on  { background: #3d2e00; color: #fbd38d; }
       .btn-toggle-off { background: #1c3426; color: #9ae6b4; }
       .btn-delete     { background: #3d1515; color: #fc8181; }
+      .btn-edit       { background: #1a365d; color: #90cdf4; }
     }
 
     /* ── FAB ── */
@@ -562,22 +564,49 @@
     const addSheet     = document.getElementById('addSheet');
     const sheetCancel  = document.getElementById('sheetCancel');
     const sheetSave    = document.getElementById('sheetSave');
+    const sheetTitle   = addSheet.querySelector('.sheet-title');
     const inpText      = document.getElementById('inp-text');
     const inpTime      = document.getElementById('inp-time');
 
-    function openSheet() {
+    /* editingId: null = chế độ thêm, string = chế độ sửa */
+    let editingId = null;
+
+    function openSheet(mode, reminder) {
+      editingId = mode === 'edit' ? reminder.id : null;
+
+      if (mode === 'edit') {
+        setText(sheetTitle, '✏️ Sửa lời nhắc');
+        addSheet.setAttribute('aria-label', 'Sửa lời nhắc');
+        setText(sheetSave, '💾 Lưu thay đổi');
+        inpText.value = reminder.text;
+        inpTime.value = reminder.time;
+        const activeDays = reminder.days.split(',');
+        dayBtns.forEach(b => {
+          const sel = activeDays.includes(b.dataset.day);
+          b.classList.toggle('selected', sel);
+          b.setAttribute('aria-pressed', String(sel));
+        });
+      } else {
+        setText(sheetTitle, '✏️ Thêm lời nhắc');
+        addSheet.setAttribute('aria-label', 'Thêm lời nhắc mới');
+        setText(sheetSave, '💾 Lưu lời nhắc');
+        resetForm();
+      }
+
       sheetOverlay.classList.add('open');
       addSheet.classList.add('open');
-      inpText.focus();
+      setTimeout(() => inpText.focus(), 60);
     }
+
     function closeSheet() {
       sheetOverlay.classList.remove('open');
       addSheet.classList.remove('open');
+      editingId = null;
     }
 
     sheetOverlay.addEventListener('click', closeSheet);
     sheetCancel.addEventListener('click', closeSheet);
-    document.getElementById('fabAdd').addEventListener('click', openSheet);
+    document.getElementById('fabAdd').addEventListener('click', () => openSheet('add'));
 
     /* Day picker */
     const dayBtns = document.querySelectorAll('.day-btn');
@@ -597,7 +626,7 @@
       dayBtns.forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-pressed','false'); });
     }
 
-    /* Save */
+    /* Save (add or update) */
     sheetSave.addEventListener('click', async () => {
       const text = inpText.value.trim();
       const time = inpTime.value;
@@ -618,22 +647,30 @@
         return;
       }
 
+      const isEdit = editingId !== null;
       sheetSave.disabled = true;
       sheetSave.classList.add('btn-loading');
       setText(sheetSave, '');
 
       try {
-        await api('add', { text, time, days });
-        closeSheet();
-        resetForm();
-        showToast('✅ Đã thêm lời nhắc!', 'success');
+        if (isEdit) {
+          await api('update', { id: editingId, text, time, days });
+          closeSheet();
+          showToast('✅ Đã cập nhật lời nhắc!', 'success');
+        } else {
+          await api('add', { text, time, days });
+          closeSheet();
+          resetForm();
+          showToast('✅ Đã thêm lời nhắc!', 'success');
+        }
         await loadReminders();
       } catch (err) {
         showToast('❌ ' + friendlyError(err), 'error', 4500);
+        /* Giữ dữ liệu người dùng đã nhập — không reset form khi lỗi */
       } finally {
         sheetSave.disabled = false;
         sheetSave.classList.remove('btn-loading');
-        setText(sheetSave, '💾 Lưu lời nhắc');
+        setText(sheetSave, isEdit ? '💾 Lưu thay đổi' : '💾 Lưu lời nhắc');
       }
     });
 
@@ -776,7 +813,14 @@
           );
         });
 
+        /* Edit button */
+        const editBtn = el('button', { className: 'btn-card btn-edit', textContent: '✏️ Sửa' });
+        editBtn.addEventListener('click', () => {
+          openSheet('edit', reminder);
+        });
+
         actions.appendChild(toggleBtn);
+        actions.appendChild(editBtn);
         actions.appendChild(deleteBtn);
         card.appendChild(actions);
         appEl.appendChild(card);
