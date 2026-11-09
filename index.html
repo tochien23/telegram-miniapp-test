@@ -1,100 +1,491 @@
 <!doctype html>
 <html lang="vi">
+
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <title>Lịch nhắc</title>
   <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f0f4f8;
+      --surface:   #ffffff;
+      --surface2:  #f7f9fb;
+      --border:    #e2e8f0;
+      --text:      #1a202c;
+      --text-sub:  #718096;
+      --accent:    #168acd;
+      --accent-dk: #1278b0;
+      --danger:    #e53e3e;
+      --danger-dk: #c53030;
+      --success:   #38a169;
+      --warn:      #dd6b20;
+      --radius:    14px;
+      --radius-sm: 9px;
+      --shadow:    0 2px 12px rgba(0,0,0,.08);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,.14);
+      --safe-b:    env(safe-area-inset-bottom, 0px);
+    }
+
+    /* Telegram dark theme */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:       #1a1a2e;
+        --surface:  #242436;
+        --surface2: #2a2a40;
+        --border:   #3a3a55;
+        --text:     #e8eaf0;
+        --text-sub: #9ba4b4;
+        --shadow:   0 2px 12px rgba(0,0,0,.35);
+        --shadow-lg:0 8px 32px rgba(0,0,0,.5);
+      }
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 16px;
-      background: #f3f5f7;
-      color: #222;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      padding-bottom: calc(90px + var(--safe-b));
+      transition: background .3s, color .3s;
     }
-    .card {
-      max-width: 480px;
+
+    /* ── Header ── */
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px 12px;
+      box-shadow: var(--shadow);
+    }
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 520px;
       margin: auto;
-      padding: 18px;
-      border-radius: 14px;
-      background: white;
     }
-    input, button {
-      box-sizing: border-box;
-      width: 100%;
-      padding: 12px;
-      margin: 7px 0;
-      border-radius: 9px;
-      font-size: 16px;
+    .header-title { font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .header-sub   { font-size: .78rem; color: var(--text-sub); margin-top: 2px; max-width: 520px; margin: 4px auto 0; }
+
+    .btn-icon {
+      width: 38px; height: 38px;
+      border: none; border-radius: 50%;
+      background: var(--surface2);
+      color: var(--accent);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s, transform .15s;
+      flex-shrink: 0;
     }
-    input[type="text"], input[type="time"] {
-      border: 1px solid #ccc;
+    .btn-icon:active { transform: scale(.9); background: var(--border); }
+    .btn-icon.spinning { animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    #toast-container {
+      position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+      z-index: 999; display: flex; flex-direction: column; align-items: center; gap: 8px;
+      pointer-events: none; width: min(calc(100vw - 32px), 400px);
     }
-    button {
-      border: 0;
-      background: #168acd;
-      color: white;
+    .toast {
+      padding: 10px 16px; border-radius: var(--radius-sm);
+      font-size: .88rem; font-weight: 500; color: #fff;
+      box-shadow: var(--shadow-lg); pointer-events: none;
+      animation: toastIn .25s ease, toastOut .3s ease 2.7s forwards;
+      max-width: 100%;
     }
-    .day-options label {
+    .toast.success { background: var(--success); }
+    .toast.error   { background: var(--danger); }
+    .toast.info    { background: var(--accent); }
+    @keyframes toastIn  { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+    @keyframes toastOut { from { opacity:1; } to { opacity:0; transform:translateY(-8px); } }
+
+    /* ── Main list area ── */
+    #app {
+      max-width: 520px; margin: auto;
+      padding: 16px 12px;
+    }
+
+    /* ── State messages ── */
+    .state-box {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 10px; padding: 48px 24px;
+      text-align: center; color: var(--text-sub);
+    }
+    .state-box .icon { font-size: 2.4rem; }
+    .state-box p { font-size: .92rem; line-height: 1.5; }
+
+    .skeleton {
+      background: var(--border);
+      border-radius: var(--radius-sm);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .skeleton-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow);
+    }
+    .skeleton-line { height: 14px; margin-bottom: 10px; }
+    .skeleton-line.short { width: 55%; }
+    .skeleton-line.med   { width: 75%; }
+    .skeleton-line.tall  { height: 18px; margin-bottom: 14px; }
+
+    /* ── Reminder card ── */
+    .reminder-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 14px 15px;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow);
+      border-left: 4px solid var(--accent);
+      transition: opacity .25s, transform .25s;
+      animation: cardIn .28s ease;
+    }
+    .reminder-card.paused { border-left-color: var(--border); opacity: .7; }
+    @keyframes cardIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+    .card-top {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+    }
+    .card-time {
+      font-size: 1.5rem; font-weight: 800; color: var(--accent);
+      font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+      flex-shrink: 0;
+    }
+    .reminder-card.paused .card-time { color: var(--text-sub); }
+    .card-text {
+      font-size: .97rem; font-weight: 500; color: var(--text);
+      line-height: 1.4; flex: 1;
+      overflow-wrap: break-word; word-break: break-word;
+    }
+    .card-status {
+      flex-shrink: 0;
+      font-size: .7rem; font-weight: 600; padding: 2px 8px;
+      border-radius: 20px; white-space: nowrap;
+    }
+    .status-active  { background: #c6f6d5; color: #22543d; }
+    .status-paused  { background: #e2e8f0; color: #4a5568; }
+    @media (prefers-color-scheme: dark) {
+      .status-active { background: #1c4532; color: #9ae6b4; }
+      .status-paused { background: #2d3748; color: #a0aec0; }
+    }
+
+    .card-days {
+      margin-top: 8px;
+      display: flex; flex-wrap: wrap; gap: 5px;
+    }
+    .day-chip {
+      font-size: .72rem; font-weight: 600;
+      padding: 2px 8px; border-radius: 20px;
+      background: var(--surface2); color: var(--text-sub);
+      border: 1px solid var(--border);
+    }
+    .day-chip.active-day { background: #ebf8ff; color: #2b6cb0; border-color: #bee3f8; }
+    @media (prefers-color-scheme: dark) {
+      .day-chip.active-day { background: #1a365d; color: #90cdf4; border-color: #2c5282; }
+    }
+
+    .card-actions {
+      display: flex; gap: 8px; margin-top: 12px;
+    }
+    .btn-card {
+      flex: 1; padding: 9px 4px;
+      border: none; border-radius: var(--radius-sm);
+      font-size: .82rem; font-weight: 600;
+      cursor: pointer; transition: background .2s, transform .15s;
+      min-height: 42px;
+    }
+    .btn-card:active { transform: scale(.97); }
+    .btn-toggle-on  { background: #fff3cd; color: #856404; }
+    .btn-toggle-off { background: #d4edda; color: #155724; }
+    .btn-delete     { background: #fde8e8; color: var(--danger); }
+    @media (prefers-color-scheme: dark) {
+      .btn-toggle-on  { background: #3d2e00; color: #fbd38d; }
+      .btn-toggle-off { background: #1c3426; color: #9ae6b4; }
+      .btn-delete     { background: #3d1515; color: #fc8181; }
+    }
+
+    /* ── FAB ── */
+    .fab {
+      position: fixed;
+      bottom: calc(20px + var(--safe-b));
+      right: 18px;
+      z-index: 200;
+      width: 56px; height: 56px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-size: 1.6rem;
+      box-shadow: var(--shadow-lg);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s, transform .15s;
+    }
+    .fab:active { transform: scale(.93); background: var(--accent-dk); }
+
+    /* ── Bottom sheet ── */
+    .overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(0,0,0,.45);
+      backdrop-filter: blur(2px);
+      animation: fadeBg .2s ease;
+    }
+    .overlay.open { display: block; }
+    @keyframes fadeBg { from{opacity:0} to{opacity:1} }
+
+    .sheet {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 400;
+      background: var(--surface);
+      border-radius: 24px 24px 0 0;
+      padding: 0 16px calc(16px + var(--safe-b));
+      max-height: 92dvh;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      box-shadow: var(--shadow-lg);
+      transform: translateY(100%);
+      transition: transform .32s cubic-bezier(.4,0,.2,1);
+    }
+    .sheet.open { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 40px; height: 4px; border-radius: 2px;
+      background: var(--border);
+      margin: 12px auto 20px;
+    }
+    .sheet-title {
+      font-size: 1.1rem; font-weight: 700;
+      margin-bottom: 20px; text-align: center;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block; font-size: .82rem; font-weight: 600;
+      color: var(--text-sub); margin-bottom: 6px;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+    .form-input {
+      width: 100%; padding: 13px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(22,138,205,.18); }
+
+    .day-picker {
+      display: flex; gap: 6px; flex-wrap: wrap;
+    }
+    .day-btn {
+      padding: 9px 0; min-width: 48px; flex: 1;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface2);
+      color: var(--text-sub);
+      font-size: .82rem; font-weight: 600;
+      cursor: pointer;
+      transition: background .18s, color .18s, border-color .18s, transform .12s;
+      text-align: center;
+    }
+    .day-btn:active { transform: scale(.93); }
+    .day-btn.selected {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .sheet-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .btn-primary {
+      flex: 1; padding: 14px;
+      border: none; border-radius: var(--radius-sm);
+      background: var(--accent); color: #fff;
+      font-size: 1rem; font-weight: 700;
+      cursor: pointer; transition: background .2s, transform .15s;
+      min-height: 50px;
+    }
+    .btn-primary:active  { background: var(--accent-dk); transform: scale(.98); }
+    .btn-primary:disabled { opacity: .55; cursor: not-allowed; }
+    .btn-secondary {
+      padding: 14px 20px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-sub);
+      font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: background .2s;
+      min-height: 50px;
+    }
+    .btn-secondary:active { background: var(--surface2); }
+
+    /* ── Confirm dialog ── */
+    .dialog-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(2px);
+      align-items: center; justify-content: center;
+      animation: fadeBg .18s ease;
+    }
+    .dialog-overlay.open { display: flex; }
+    .dialog-box {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 24px 20px;
+      width: min(calc(100vw - 48px), 320px);
+      box-shadow: var(--shadow-lg);
+      animation: dialogIn .2s cubic-bezier(.4,0,.2,1);
+      text-align: center;
+    }
+    @keyframes dialogIn { from{opacity:0;transform:scale(.92)} to{opacity:1;transform:scale(1)} }
+    .dialog-icon { font-size: 2.2rem; margin-bottom: 10px; }
+    .dialog-title { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+    .dialog-msg { font-size: .88rem; color: var(--text-sub); margin-bottom: 20px; line-height: 1.5; }
+    .dialog-actions { display: flex; gap: 10px; }
+    .btn-dialog-cancel {
+      flex: 1; padding: 12px;
+      border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-sub);
+      font-size: .9rem; font-weight: 600; cursor: pointer;
+    }
+    .btn-dialog-confirm {
+      flex: 1; padding: 12px;
+      border: none; border-radius: var(--radius-sm);
+      background: var(--danger); color: #fff;
+      font-size: .9rem; font-weight: 700; cursor: pointer;
+    }
+    .btn-dialog-confirm:disabled { opacity: .55; cursor: not-allowed; }
+
+    /* ── Spinner in button ── */
+    @keyframes btnSpin { to{transform:rotate(360deg)} }
+    .btn-loading::after {
+      content: '';
       display: inline-block;
-      margin: 7px 8px 7px 0;
-    }
-    .day-options input {
-      width: auto;
-    }
-    #status {
-      white-space: pre-wrap;
-    }
-    .reminder {
-      padding: 10px 0;
-      border-top: 1px solid #ddd;
-    }
-    .delete {
-      background: #d64545;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: btnSpin .6s linear infinite;
+      margin-left: 8px;
+      vertical-align: middle;
     }
   </style>
 </head>
+
 <body>
-  <main class="card">
-    <h2>📅 Lịch nhắc của tôi</h2>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-row">
+      <div>
+        <div class="header-title">📅 Lịch nhắc của tôi</div>
+      </div>
+      <button class="btn-icon" id="refreshBtn" title="Làm mới" aria-label="Làm mới danh sách">↻</button>
+    </div>
+    <div class="header-sub" id="headerSub">Đang tải…</div>
+  </header>
 
-    <label for="text">Nội dung nhắc</label>
-    <input id="text" type="text" maxlength="300"
-           placeholder="Ví dụ: Ôn tiếng Anh">
+  <!-- Toast container -->
+  <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
-    <label for="time">Giờ nhắc</label>
-    <input id="time" type="time" value="19:00">
+  <!-- Main list -->
+  <main id="app"></main>
 
-    <p>Lặp vào ngày:</p>
-    <div class="day-options">
-      <label><input type="checkbox" value="1"> Thứ 2</label>
-      <label><input type="checkbox" value="2"> Thứ 3</label>
-      <label><input type="checkbox" value="3"> Thứ 4</label>
-      <label><input type="checkbox" value="4"> Thứ 5</label>
-      <label><input type="checkbox" value="5"> Thứ 6</label>
-      <label><input type="checkbox" value="6"> Thứ 7</label>
-      <label><input type="checkbox" value="7"> Chủ nhật</label>
+  <!-- FAB -->
+  <button class="fab" id="fabAdd" title="Thêm lời nhắc" aria-label="Thêm lời nhắc mới">＋</button>
+
+  <!-- Bottom sheet overlay -->
+  <div class="overlay" id="sheetOverlay" role="presentation"></div>
+
+  <!-- Bottom sheet -->
+  <div class="sheet" id="addSheet" role="dialog" aria-modal="true" aria-label="Thêm lời nhắc mới">
+    <div class="sheet-handle"></div>
+    <h2 class="sheet-title">✏️ Thêm lời nhắc</h2>
+
+    <div class="form-group">
+      <label for="inp-text">Nội dung nhắc</label>
+      <input id="inp-text" class="form-input" type="text" maxlength="300"
+             placeholder="Ví dụ: Ôn tiếng Anh" autocomplete="off">
     </div>
 
-    <button id="addButton">Thêm lời nhắc</button>
-    <p id="status">Đang tải lịch…</p>
-    <div id="list"></div>
-  </main>
+    <div class="form-group">
+      <label for="inp-time">Giờ nhắc</label>
+      <input id="inp-time" class="form-input" type="time" value="19:00">
+    </div>
+
+    <div class="form-group">
+      <label>Lặp vào ngày</label>
+      <div class="day-picker" role="group" aria-label="Chọn ngày lặp">
+        <button type="button" class="day-btn" data-day="1" aria-pressed="false">T2</button>
+        <button type="button" class="day-btn" data-day="2" aria-pressed="false">T3</button>
+        <button type="button" class="day-btn" data-day="3" aria-pressed="false">T4</button>
+        <button type="button" class="day-btn" data-day="4" aria-pressed="false">T5</button>
+        <button type="button" class="day-btn" data-day="5" aria-pressed="false">T6</button>
+        <button type="button" class="day-btn" data-day="6" aria-pressed="false">T7</button>
+        <button type="button" class="day-btn" data-day="7" aria-pressed="false">CN</button>
+      </div>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn-secondary" id="sheetCancel">Đóng</button>
+      <button class="btn-primary"   id="sheetSave">💾 Lưu lời nhắc</button>
+    </div>
+  </div>
+
+  <!-- Confirm delete dialog -->
+  <div class="dialog-overlay" id="confirmDialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-title">
+    <div class="dialog-box">
+      <div class="dialog-icon">🗑️</div>
+      <div class="dialog-title" id="dlg-title">Xóa lời nhắc?</div>
+      <div class="dialog-msg" id="dlg-msg">Hành động này không thể hoàn tác.</div>
+      <div class="dialog-actions">
+        <button class="btn-dialog-cancel"  id="dlgCancel">Hủy</button>
+        <button class="btn-dialog-confirm" id="dlgConfirm">Xóa</button>
+      </div>
+    </div>
+  </div>
 
   <script>
-    const API_URL =
-      "https://reminder-api.ht1-chien.workers.dev/api/reminders";
+    /* ============================================================
+       CONFIG
+    ============================================================ */
+    const API_URL = "https://reminder-api.ht1-chien.workers.dev/api/reminders";
 
+    /* ============================================================
+       TELEGRAM WEBAPP
+    ============================================================ */
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg) {
       tg.ready();
       tg.expand();
+      /* Apply Telegram theme colors when available */
+      if (tg.themeParams) {
+        const tp = tg.themeParams;
+        const root = document.documentElement;
+        if (tp.bg_color)         root.style.setProperty('--bg',      tp.bg_color);
+        if (tp.secondary_bg_color) root.style.setProperty('--surface2', tp.secondary_bg_color);
+        if (tp.text_color)       root.style.setProperty('--text',    tp.text_color);
+        if (tp.hint_color)       root.style.setProperty('--text-sub',tp.hint_color);
+        if (tp.button_color)     root.style.setProperty('--accent',  tp.button_color);
+        if (tp.button_color)     root.style.setProperty('--accent-dk',tp.button_color);
+        if (tp.button_text_color) { /* accent text stays white */ }
+      }
     }
 
-    const statusEl = document.getElementById("status");
-    const listEl = document.getElementById("list");
-
+    /* ============================================================
+       HELPERS
+    ============================================================ */
     function getInitData() {
       if (!tg || !tg.initData) {
         throw new Error("Hãy mở Mini App bằng nút Menu trong Telegram.");
@@ -102,98 +493,355 @@
       return tg.initData;
     }
 
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    function el(tag, props = {}) {
+      const e = document.createElement(tag);
+      Object.assign(e, props);
+      return e;
+    }
+
+    function setText(node, text) { node.textContent = text; }
+
+    /* Toast notifications */
+    function showToast(msg, type = 'info', duration = 3000) {
+      const container = document.getElementById('toast-container');
+      const toast = el('div', { textContent: msg, className: `toast ${type}` });
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), duration);
+    }
+
+    /* Friendly network error messages */
+    function friendlyError(err) {
+      const msg = err.message || '';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('ERR_')) {
+        return 'Không có kết nối mạng. Vui lòng kiểm tra internet và thử lại.';
+      }
+      if (msg.includes('Hãy mở Mini App')) return msg;
+      if (msg.toLowerCase().includes('unauthorized') || msg.includes('401')) {
+        return 'Phiên đăng nhập hết hạn. Vui lòng mở lại Mini App từ Telegram.';
+      }
+      if (msg.includes('500') || msg.toLowerCase().includes('server')) {
+        return 'Lỗi máy chủ. Vui lòng thử lại sau ít phút.';
+      }
+      return msg || 'Có lỗi xảy ra. Vui lòng thử lại.';
+    }
+
+    /* Day label map */
+    const DAY_LABELS = { '1':'Thứ 2','2':'Thứ 3','3':'Thứ 4','4':'Thứ 5','5':'Thứ 6','6':'Thứ 7','7':'Chủ nhật' };
+    const DAY_SHORT  = { '1':'T2','2':'T3','3':'T4','4':'T5','5':'T6','6':'T7','7':'CN' };
+
+    function daysLabel(csv) {
+      return csv.split(',').map(d => DAY_LABELS[d] || d).join(', ');
+    }
+
+    /* ============================================================
+       API
+    ============================================================ */
     async function api(action, extra = {}) {
       const response = await fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action,
-          initData: getInitData(),
-          ...extra
-        })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, initData: getInitData(), ...extra })
       });
-
       const result = await response.json();
       if (!response.ok || result.error) {
-        throw new Error(result.error || "Có lỗi khi gọi Worker.");
+        throw new Error(result.error || 'Có lỗi khi gọi Worker.');
       }
       return result;
     }
 
-    function makeElement(tag, text, className) {
-      const element = document.createElement(tag);
-      element.textContent = text;
-      if (className) element.className = className;
-      return element;
+    /* ============================================================
+       SHEET (bottom sheet)
+    ============================================================ */
+    const sheetOverlay = document.getElementById('sheetOverlay');
+    const addSheet     = document.getElementById('addSheet');
+    const sheetCancel  = document.getElementById('sheetCancel');
+    const sheetSave    = document.getElementById('sheetSave');
+    const inpText      = document.getElementById('inp-text');
+    const inpTime      = document.getElementById('inp-time');
+
+    function openSheet() {
+      sheetOverlay.classList.add('open');
+      addSheet.classList.add('open');
+      inpText.focus();
+    }
+    function closeSheet() {
+      sheetOverlay.classList.remove('open');
+      addSheet.classList.remove('open');
     }
 
-    function daysLabel(csv) {
-      const names = {
-        "1": "Thứ 2", "2": "Thứ 3", "3": "Thứ 4",
-        "4": "Thứ 5", "5": "Thứ 6", "6": "Thứ 7",
-        "7": "Chủ nhật"
-      };
-      return csv.split(",").map(day => names[day] || day).join(", ");
+    sheetOverlay.addEventListener('click', closeSheet);
+    sheetCancel.addEventListener('click', closeSheet);
+    document.getElementById('fabAdd').addEventListener('click', openSheet);
+
+    /* Day picker */
+    const dayBtns = document.querySelectorAll('.day-btn');
+    dayBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sel = btn.classList.toggle('selected');
+        btn.setAttribute('aria-pressed', String(sel));
+      });
+    });
+
+    function getSelectedDays() {
+      return [...dayBtns].filter(b => b.classList.contains('selected')).map(b => b.dataset.day).join(',');
+    }
+    function resetForm() {
+      inpText.value = '';
+      inpTime.value = '19:00';
+      dayBtns.forEach(b => { b.classList.remove('selected'); b.setAttribute('aria-pressed','false'); });
     }
 
-    async function loadReminders() {
-      statusEl.textContent = "Đang tải lịch…";
-      listEl.replaceChildren();
+    /* Save */
+    sheetSave.addEventListener('click', async () => {
+      const text = inpText.value.trim();
+      const time = inpTime.value;
+      const days = getSelectedDays();
 
-      try {
-        const result = await api("list");
-        statusEl.textContent = result.reminders.length
-          ? "Các lời nhắc đã lưu:"
-          : "Chưa có lời nhắc nào.";
-
-        for (const reminder of result.reminders) {
-          const item = document.createElement("section");
-          item.className = "reminder";
-          item.append(
-            makeElement("strong", `${reminder.time} — ${reminder.text}`),
-            makeElement("p", `Ngày: ${daysLabel(reminder.days)}`)
-          );
-
-          const button = makeElement("button", "Xóa lời nhắc", "delete");
-          button.onclick = async () => {
-            if (!confirm("Xóa lời nhắc này?")) return;
-            try {
-              await api("delete", { id: reminder.id });
-              await loadReminders();
-            } catch (error) {
-              statusEl.textContent = error.message;
-            }
-          };
-
-          item.append(button);
-          listEl.append(item);
-        }
-      } catch (error) {
-        statusEl.textContent = error.message;
+      if (!text) {
+        showToast('⚠️ Vui lòng nhập nội dung lời nhắc.', 'error');
+        inpText.focus();
+        return;
       }
-    }
+      if (!time) {
+        showToast('⚠️ Vui lòng chọn giờ nhắc.', 'error');
+        inpTime.focus();
+        return;
+      }
+      if (!days) {
+        showToast('⚠️ Vui lòng chọn ít nhất một ngày.', 'error');
+        return;
+      }
 
-    document.getElementById("addButton").onclick = async () => {
-      const text = document.getElementById("text").value.trim();
-      const time = document.getElementById("time").value;
-      const days = [...document.querySelectorAll(
-        ".day-options input:checked"
-      )].map(input => input.value).join(",");
-
-      statusEl.textContent = "Đang lưu…";
+      sheetSave.disabled = true;
+      sheetSave.classList.add('btn-loading');
+      setText(sheetSave, '');
 
       try {
-        await api("add", { text, time, days });
-        document.getElementById("text").value = "";
-        document.querySelectorAll(".day-options input")
-          .forEach(input => input.checked = false);
+        await api('add', { text, time, days });
+        closeSheet();
+        resetForm();
+        showToast('✅ Đã thêm lời nhắc!', 'success');
         await loadReminders();
-      } catch (error) {
-        statusEl.textContent = error.message;
+      } catch (err) {
+        showToast('❌ ' + friendlyError(err), 'error', 4500);
+      } finally {
+        sheetSave.disabled = false;
+        sheetSave.classList.remove('btn-loading');
+        setText(sheetSave, '💾 Lưu lời nhắc');
       }
-    };
+    });
 
+    /* ============================================================
+       CONFIRM DIALOG
+    ============================================================ */
+    const confirmDialog = document.getElementById('confirmDialog');
+    const dlgMsg        = document.getElementById('dlg-msg');
+    const dlgCancel     = document.getElementById('dlgCancel');
+    const dlgConfirm    = document.getElementById('dlgConfirm');
+
+    function openConfirm(message, onConfirm) {
+      setText(dlgMsg, message);
+      confirmDialog.classList.add('open');
+      dlgConfirm.disabled = false;
+
+      function cleanup() {
+        confirmDialog.classList.remove('open');
+        dlgCancel.removeEventListener('click', onCancel);
+        dlgConfirm.removeEventListener('click', onOk);
+      }
+      function onCancel() { cleanup(); }
+      function onOk() {
+        cleanup();
+        onConfirm();
+      }
+      dlgCancel.addEventListener('click', onCancel);
+      dlgConfirm.addEventListener('click', onOk);
+    }
+
+    /* ============================================================
+       RENDER REMINDERS
+    ============================================================ */
+    const appEl    = document.getElementById('app');
+    const headerSub = document.getElementById('headerSub');
+
+    function renderSkeleton() {
+      appEl.replaceChildren();
+      for (let i = 0; i < 3; i++) {
+        const card = el('div', { className: 'skeleton-card' });
+        card.innerHTML =
+          '<div class="skeleton skeleton-line tall med"></div>' +
+          '<div class="skeleton skeleton-line short"></div>' +
+          '<div class="skeleton skeleton-line med" style="margin-top:14px;height:34px;border-radius:9px"></div>';
+        appEl.appendChild(card);
+      }
+    }
+
+    function renderEmpty() {
+      const box = el('div', { className: 'state-box' });
+      const icon = el('div', { textContent: '🔔', className: 'icon' });
+      const p = el('p', { textContent: 'Chưa có lời nhắc nào.\nBấm ＋ để thêm lời nhắc đầu tiên!' });
+      box.appendChild(icon);
+      box.appendChild(p);
+      appEl.replaceChildren(box);
+    }
+
+    function renderError(msg) {
+      const box = el('div', { className: 'state-box' });
+      const icon = el('div', { textContent: '⚠️', className: 'icon' });
+      const p = el('p');
+      setText(p, msg);
+      box.appendChild(icon);
+      box.appendChild(p);
+      appEl.replaceChildren(box);
+    }
+
+    function renderReminders(reminders) {
+      appEl.replaceChildren();
+
+      for (const reminder of reminders) {
+        const isActive = Number(reminder.active) === 1;
+        const card = el('section', { className: 'reminder-card' + (isActive ? '' : ' paused') });
+        card.dataset.id = reminder.id;
+
+        /* Top row: time + status badge */
+        const top = el('div', { className: 'card-top' });
+
+        const timeEl = el('div', { className: 'card-time', textContent: reminder.time });
+        const badge = el('span', {
+          className: 'card-status ' + (isActive ? 'status-active' : 'status-paused'),
+          textContent: isActive ? '● Đang bật' : '◎ Tạm dừng'
+        });
+        top.appendChild(timeEl);
+        top.appendChild(badge);
+        card.appendChild(top);
+
+        /* Reminder text */
+        const textEl = el('div', { className: 'card-text', textContent: reminder.text });
+        card.appendChild(textEl);
+
+        /* Day chips */
+        const daysEl = el('div', { className: 'card-days', 'aria-label': 'Ngày lặp' });
+        reminder.days.split(',').forEach(d => {
+          const chip = el('span', {
+            className: 'day-chip' + (isActive ? ' active-day' : ''),
+            textContent: DAY_SHORT[d] || d
+          });
+          daysEl.appendChild(chip);
+        });
+        card.appendChild(daysEl);
+
+        /* Actions */
+        const actions = el('div', { className: 'card-actions' });
+
+        /* Toggle button */
+        const toggleBtn = el('button', {
+          className: 'btn-card ' + (isActive ? 'btn-toggle-on' : 'btn-toggle-off'),
+          textContent: isActive ? '⏸ Tạm dừng' : '▶ Bật lại'
+        });
+        toggleBtn.addEventListener('click', async () => {
+          toggleBtn.disabled = true;
+          const newActive = isActive ? 0 : 1;
+          try {
+            await api('toggle', { id: reminder.id, active: newActive });
+            showToast(newActive === 1 ? '▶ Đã bật lời nhắc.' : '⏸ Đã tạm dừng lời nhắc.', 'info');
+            await loadReminders();
+          } catch (err) {
+            showToast('❌ ' + friendlyError(err), 'error', 4000);
+            toggleBtn.disabled = false;
+          }
+        });
+
+        /* Delete button */
+        const deleteBtn = el('button', { className: 'btn-card btn-delete', textContent: '🗑 Xóa' });
+        deleteBtn.addEventListener('click', () => {
+          openConfirm(
+            `Xóa lời nhắc "${reminder.text}" lúc ${reminder.time}? Hành động này không thể hoàn tác.`,
+            async () => {
+              deleteBtn.disabled = true;
+              try {
+                await api('delete', { id: reminder.id });
+                showToast('🗑 Đã xóa lời nhắc.', 'info');
+                await loadReminders();
+              } catch (err) {
+                showToast('❌ ' + friendlyError(err), 'error', 4000);
+                deleteBtn.disabled = false;
+              }
+            }
+          );
+        });
+
+        actions.appendChild(toggleBtn);
+        actions.appendChild(deleteBtn);
+        card.appendChild(actions);
+        appEl.appendChild(card);
+      }
+    }
+
+    /* ============================================================
+       LOAD REMINDERS
+    ============================================================ */
+    let isLoading = false;
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    async function loadReminders(silent = false) {
+      if (isLoading) return;
+      isLoading = true;
+      refreshBtn.classList.add('spinning');
+      if (!silent) {
+        setText(headerSub, 'Đang tải…');
+        renderSkeleton();
+      }
+
+      try {
+        const result = await api('list');
+        const count = result.reminders.length;
+        setText(headerSub,
+          count > 0
+            ? `${count} lời nhắc đang được lưu`
+            : 'Chưa có lời nhắc nào'
+        );
+        if (count > 0) {
+          renderReminders(result.reminders);
+        } else {
+          renderEmpty();
+        }
+      } catch (err) {
+        const msg = friendlyError(err);
+        setText(headerSub, 'Không thể tải dữ liệu');
+        renderError(msg);
+        if (silent) showToast('❌ ' + msg, 'error', 4000);
+      } finally {
+        isLoading = false;
+        refreshBtn.classList.remove('spinning');
+      }
+    }
+
+    refreshBtn.addEventListener('click', () => loadReminders(false));
+
+    /* ============================================================
+       KEYBOARD: close sheet on Escape
+    ============================================================ */
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        if (confirmDialog.classList.contains('open')) {
+          confirmDialog.classList.remove('open');
+        } else if (addSheet.classList.contains('open')) {
+          closeSheet();
+        }
+      }
+    });
+
+    /* ============================================================
+       INIT
+    ============================================================ */
     loadReminders();
   </script>
 </body>
+
 </html>
